@@ -6,16 +6,14 @@
 #include <map>
 #include <functional>
 
-class StringParser
+namespace StringParsing
 {
-public:
-  template <typename T>
-  static bool parseString(const std::string& valueAsString, T& value)
+  template <typename T> bool parseString(const std::string& valueAsString, T& value)
   {
     return (bool)(std::stringstream(valueAsString) >> value);
   }
 
-  template <> static bool parseString(const std::string& valueAsString, std::string& value)
+  template <> bool parseString(const std::string& valueAsString, std::string& value)
   {
     value = valueAsString;
     return true;
@@ -28,7 +26,7 @@ public:
   template <typename T>
   void registerOption(T& parameter, const std::string& optionName)
   {
-    m_parserFunctions.emplace(optionName, std::bind(StringParser::parseString<T>, std::placeholders::_1, std::ref(parameter)));
+    m_parserFunctions.emplace(optionName, std::bind(StringParsing::parseString<T>, std::placeholders::_1, std::ref(parameter)));
   }
 
   template <>
