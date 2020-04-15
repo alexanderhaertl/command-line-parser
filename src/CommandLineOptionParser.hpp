@@ -3,6 +3,8 @@
 #include <string>
 #include <vector>
 #include <sstream>
+#include <iostream>
+#include <iomanip>
 #include <map>
 #include <functional>
 #include <algorithm>
@@ -26,11 +28,11 @@ class CommandLineOptionParser
 {
 public:
   template <typename T>
-  void registerOption(T& parameter, const std::string& optionName, const std::string& description)
+  void registerOption(T& parameter, const std::string& optionName, const std::string& parameterName, const std::string& description)
   {
     m_parserFunctions.emplace(optionName, Parameter({
       std::bind(StringParsing::parseString<T>, std::placeholders::_1, std::ref(parameter)),
-      optionName,
+      parameterName,
       description }));
   }
 
@@ -129,6 +131,36 @@ public:
   {
     // extract program name from argv[0]
     const auto executableName = std::filesystem::path(argv0).stem().string();
+    // now the first line is a concatenation of the program name and the mandatory and optional parameters
+    // if the options are not empty, they are also mentioned
+    std::cout << executableName << " ";
+    std::for_each(m_mandatoryParameters.begin(), m_mandatoryParameters.end(), [&](const auto& i) 
+      {std::cout << "<" + i.name + "> "; });
+    std::for_each(m_optionalParameters.begin(), m_optionalParameters.end(), [&](const auto& i)
+      {std::cout << "[" + i.name + "] "; });
+    if (!m_parserFunctions.empty() || !m_flags.empty()) std::cout << "[options...]";
+    std::cout << std::endl;
+
+    // now all option strings are generated
+    std::vector<std::pair<std::string, std::string>> optionsAndDescriptions;
+    std::transform(m_mandatoryParameters.begin(), m_mandatoryParameters.end(), std::back_inserter(optionsAndDescriptions),
+      [](const auto& i) {return std::make_pair("<" + i.name + ">", i.description); });
+    std::transform(m_optionalParameters.begin(), m_optionalParameters.end(), std::back_inserter(optionsAndDescriptions),
+      [](const auto& i) {return std::make_pair("[" + i.name + "]", i.description); });
+    std::transform(m_flags.begin(), m_flags.end(), std::back_inserter(optionsAndDescriptions),
+      [](const auto& i) {return std::make_pair("-" + i.first, i.second.description); });
+    std::transform(m_parserFunctions.begin(), m_parserFunctions.end(), std::back_inserter(optionsAndDescriptions),
+      [](const auto& i) {return std::make_pair("-" + i.first + " <" + i.second.name + ">", i.second.description); });
+
+    // now the options and parameters are described
+    if (!optionsAndDescriptions.empty())
+    {
+      auto maxOptionStringLength = std::max_element(optionsAndDescriptions.begin(), optionsAndDescriptions.end(), 
+        [](const auto& l, const auto& r) {return l.first.length() < r.first.length(); })->first.length();
+      std::cout << std::endl << "Options" << std::endl;
+      std::for_each(optionsAndDescriptions.begin(), optionsAndDescriptions.end(), [&](const auto& i)
+        {std::cout << "  " << std::left << std::setw(maxOptionStringLength) << i.first << " " << i.second << std::endl; });
+    }
   }
 
 private:
