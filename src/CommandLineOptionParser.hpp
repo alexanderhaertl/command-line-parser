@@ -87,7 +87,7 @@ public:
           else
           {
             // we have an option expecting a parameter, without a parameter following
-            throw std::invalid_argument("Option " + *i + " not followed by value <" + paramFindResult->second.description + ">");
+            throw std::invalid_argument("Option " + *(--i) + " not followed by value <" + paramFindResult->second.name + ">");
           }
         }
         else
