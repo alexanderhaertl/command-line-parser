@@ -9,18 +9,21 @@
 #include <functional>
 #include <algorithm>
 #include <filesystem>
+#include <typeinfo>
 
 namespace StringParsing
 {
-  template <typename T> bool parseString(const std::string& valueAsString, T& value)
+  template <typename T> void parseString(const std::string& valueAsString, T& value)
   {
-    return (bool)(std::stringstream(valueAsString) >> value);
+    if (!(std::stringstream(valueAsString) >> value))
+    {
+      throw std::invalid_argument("Error parsing value " + valueAsString + " as " + std::string(typeid(T).name()));
+    }
   }
 
-  template <> bool parseString(const std::string& valueAsString, std::string& value)
+  template <> void parseString(const std::string& valueAsString, std::string& value)
   {
     value = valueAsString;
-    return true;
   }
 };
 
@@ -30,7 +33,7 @@ public:
   template <typename T>
   void registerOption(T& parameter, const std::string& optionName, const std::string& parameterName, const std::string& description)
   {
-    m_parserFunctions.emplace(optionName, Parameter({
+    m_namedOptions.emplace(optionName, Parameter({
       std::bind(StringParsing::parseString<T>, std::placeholders::_1, std::ref(parameter)),
       parameterName,
       description }));
@@ -50,12 +53,12 @@ public:
       description});
   }
 
-  bool parseCommandLineArguments(int argc, char** argv)
+  void parseCommandLineArguments(int argc, char** argv)
   {
-    return parseCommandLineArguments(std::vector<std::string>(argv, argv + argc));
+    parseCommandLineArguments(std::vector<std::string>(argv, argv + argc));
   }
 
-  bool parseCommandLineArguments(const std::vector<std::string>& args) const
+  void parseCommandLineArguments(const std::vector<std::string>& args) const
   {
     auto mandatoryParamIterator = m_mandatoryParameters.begin();
     auto optionalParamIterator = m_optionalParameters.begin();
@@ -67,33 +70,29 @@ public:
         // named option
         const auto optionIdentifier = i->substr(1);
         auto flagFindResult = m_flags.find(optionIdentifier);
-        auto paramFindResult = m_parserFunctions.find(optionIdentifier);
+        auto paramFindResult = m_namedOptions.find(optionIdentifier);
         if (flagFindResult != m_flags.end())
         {
           auto& flag = *flagFindResult->second.flagPointer;
           flag = !flag;
         }
-        else if (paramFindResult != m_parserFunctions.end())
+        else if (paramFindResult != m_namedOptions.end())
         {
           if (++i != args.end()) // we have at least one parameter left
           {
             // parameter iterator was intentionally advanced, because the actual option is the parameter following the option identifier
-            if (!paramFindResult->second.parserFunction(*i))
-            {
-              // parsing error
-              return false;
-            }
+            paramFindResult->second.parserFunction(*i);
           }
           else
           {
             // we have an option expecting a parameter, without a parameter following
-            return false;
+            throw std::invalid_argument("Option " + *i + " not followed by value <" + paramFindResult->second.description + ">");
           }
         }
         else
         {
           // unknown option
-          return false;
+          throw std::invalid_argument("Unknown option " + *i);
         }
       }
       else
@@ -102,17 +101,17 @@ public:
         if (mandatoryParamIterator != m_mandatoryParameters.end())
         {
           // we have mandatory parameter to match
-          if (!mandatoryParamIterator++->parserFunction(*i)) return false;
+          mandatoryParamIterator++->parserFunction(*i);
         }
         else if (optionalParamIterator != m_optionalParameters.end())
         {
           // we have an optional parameter to match
-          if (!optionalParamIterator++->parserFunction(*i)) return false;
+          optionalParamIterator++->parserFunction(*i);
         }
         else
         {
           // we have an unnamed parameter without registered counterpart
-          return false;
+          throw std::invalid_argument("Parameter " + *i + " not recognized");
         }
       }
     }
@@ -121,10 +120,8 @@ public:
     if (mandatoryParamIterator != m_mandatoryParameters.end())
     {
       // there are remaining mandatory parameters without matching command line argument
-      return false;
+      throw std::invalid_argument("Not all required parameters provided");
     }
-
-    return true;
   }
 
   void printUsage(const std::string& argv0)
@@ -138,7 +135,7 @@ public:
       {std::cout << "<" + i.name + "> "; });
     std::for_each(m_optionalParameters.begin(), m_optionalParameters.end(), [&](const auto& i)
       {std::cout << "[" + i.name + "] "; });
-    if (!m_parserFunctions.empty() || !m_flags.empty()) std::cout << "[options...]";
+    if (!m_namedOptions.empty() || !m_flags.empty()) std::cout << "[options...]";
     std::cout << std::endl;
 
     // now all option strings are generated
@@ -149,7 +146,7 @@ public:
       [](const auto& i) {return std::make_pair("[" + i.name + "]", i.description); });
     std::transform(m_flags.begin(), m_flags.end(), std::back_inserter(optionsAndDescriptions),
       [](const auto& i) {return std::make_pair("-" + i.first, i.second.description); });
-    std::transform(m_parserFunctions.begin(), m_parserFunctions.end(), std::back_inserter(optionsAndDescriptions),
+    std::transform(m_namedOptions.begin(), m_namedOptions.end(), std::back_inserter(optionsAndDescriptions),
       [](const auto& i) {return std::make_pair("-" + i.first + " <" + i.second.name + ">", i.second.description); });
 
     // now the options and parameters are described
@@ -166,7 +163,7 @@ public:
 private:
   struct Parameter
   {
-    std::function<bool(const std::string&)> parserFunction;
+    std::function<void(const std::string&)> parserFunction;
     std::string name, description;
   };
 
@@ -177,6 +174,6 @@ private:
   };
 
   std::vector<Parameter> m_mandatoryParameters, m_optionalParameters;
-  std::map<std::string, Parameter> m_parserFunctions;
+  std::map<std::string, Parameter> m_namedOptions;
   std::map<std::string, Switch> m_flags;
 };
