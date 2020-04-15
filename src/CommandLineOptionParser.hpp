@@ -6,6 +6,7 @@
 #include <map>
 #include <functional>
 #include <algorithm>
+#include <filesystem>
 
 namespace StringParsing
 {
@@ -25,23 +26,26 @@ class CommandLineOptionParser
 {
 public:
   template <typename T>
-  void registerOption(T& parameter, const std::string& optionName)
+  void registerOption(T& parameter, const std::string& optionName, const std::string& description)
   {
-    m_parserFunctions.emplace(optionName, std::bind(StringParsing::parseString<T>, std::placeholders::_1, std::ref(parameter)));
+    m_parserFunctions.emplace(optionName, Parameter({
+      std::bind(StringParsing::parseString<T>, std::placeholders::_1, std::ref(parameter)),
+      optionName,
+      description }));
   }
 
-  void registerSwitch(bool& parameter, const std::string& parameterName)
+  void registerSwitch(bool& parameter, const std::string& parameterName, const std::string& description)
   {
-    m_flags.emplace(parameterName, &parameter);
+    m_flags.emplace(parameterName, Switch({ &parameter, description }));
   }
 
   template <typename T>
-  void registerUnnamedParameter(T& parameter, const std::string& parameterName, bool mandatory = true)
+  void registerUnnamedParameter(T& parameter, const std::string& parameterName, const std::string& description, bool mandatory = true)
   {
-    m_unnamedParameters.push_back({
+    (mandatory ? m_mandatoryParameters : m_optionalParameters).push_back({
       std::bind(StringParsing::parseString<T>, std::placeholders::_1, std::ref(parameter)),
-      parameterName, 
-      mandatory });
+      parameterName,
+      description});
   }
 
   bool parseCommandLineArguments(int argc, char** argv)
@@ -51,13 +55,8 @@ public:
 
   bool parseCommandLineArguments(const std::vector<std::string>& args) const
   {
-    std::vector<const UnnamedParameter*> mandatoryParams, optionalParams;
-    for (const auto& i : m_unnamedParameters)
-    {
-      (i.mandatory ? mandatoryParams : optionalParams).push_back(&i);
-    }
-    auto mandatoryParamIterator = mandatoryParams.begin();
-    auto optionalParamIterator = optionalParams.begin();
+    auto mandatoryParamIterator = m_mandatoryParameters.begin();
+    auto optionalParamIterator = m_optionalParameters.begin();
 
     for (auto i = ++args.begin(); i != args.end(); ++i)
     {
@@ -69,14 +68,15 @@ public:
         auto paramFindResult = m_parserFunctions.find(optionIdentifier);
         if (flagFindResult != m_flags.end())
         {
-          *(flagFindResult->second) = !(*(flagFindResult->second));
+          auto& flag = *flagFindResult->second.flagPointer;
+          flag = !flag;
         }
         else if (paramFindResult != m_parserFunctions.end())
         {
           if (++i != args.end()) // we have at least one parameter left
           {
             // parameter iterator was intentionally advanced, because the actual option is the parameter following the option identifier
-            if (!paramFindResult->second(*i))
+            if (!paramFindResult->second.parserFunction(*i))
             {
               // parsing error
               return false;
@@ -97,15 +97,15 @@ public:
       else
       {
         // unnamed option
-        if (mandatoryParamIterator != mandatoryParams.end())
+        if (mandatoryParamIterator != m_mandatoryParameters.end())
         {
           // we have mandatory parameter to match
-          if (!(**mandatoryParamIterator++).parserFunction(*i)) return false;
+          if (!mandatoryParamIterator++->parserFunction(*i)) return false;
         }
-        else if (optionalParamIterator != optionalParams.end())
+        else if (optionalParamIterator != m_optionalParameters.end())
         {
           // we have an optional parameter to match
-          if (!(**optionalParamIterator++).parserFunction(*i)) return false;
+          if (!optionalParamIterator++->parserFunction(*i)) return false;
         }
         else
         {
@@ -116,7 +116,7 @@ public:
     }
 
     // check that all mandatory parameters are matched
-    if (mandatoryParamIterator != mandatoryParams.end())
+    if (mandatoryParamIterator != m_mandatoryParameters.end())
     {
       // there are remaining mandatory parameters without matching command line argument
       return false;
@@ -125,15 +125,26 @@ public:
     return true;
   }
 
+  void printUsage(const std::string& argv0)
+  {
+    // extract program name from argv[0]
+    const auto executableName = std::filesystem::path(argv0).stem().string();
+  }
+
 private:
-  struct UnnamedParameter
+  struct Parameter
   {
     std::function<bool(const std::string&)> parserFunction;
-    std::string name;
-    bool mandatory;
+    std::string name, description;
   };
 
-  std::vector<UnnamedParameter> m_unnamedParameters;
-  std::map<std::string, std::function<bool(const std::string&)> > m_parserFunctions;
-  std::map<std::string, bool*> m_flags;
+  struct Switch
+  {
+    bool* flagPointer;
+    std::string description;
+  };
+
+  std::vector<Parameter> m_mandatoryParameters, m_optionalParameters;
+  std::map<std::string, Parameter> m_parserFunctions;
+  std::map<std::string, Switch> m_flags;
 };
