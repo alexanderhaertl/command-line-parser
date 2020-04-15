@@ -125,19 +125,19 @@ public:
     }
   }
 
-  void printUsage(const std::string& argv0)
+  void printUsage(const std::string& argv0, std::ostream& stream = std::cout)
   {
     // extract program name from argv[0]
     const auto executableName = std::filesystem::path(argv0).stem().string();
     // now the first line is a concatenation of the program name and the mandatory and optional parameters
     // if the options are not empty, they are also mentioned
-    std::cout << executableName << " ";
+    stream << "usage: " << executableName << " ";
     std::for_each(m_mandatoryParameters.begin(), m_mandatoryParameters.end(), [&](const auto& i) 
-      {std::cout << "<" + i.name + "> "; });
+      {stream << "<" + i.name + "> "; });
     std::for_each(m_optionalParameters.begin(), m_optionalParameters.end(), [&](const auto& i)
-      {std::cout << "[" + i.name + "] "; });
-    if (!m_namedOptions.empty() || !m_flags.empty()) std::cout << "[options...]";
-    std::cout << std::endl;
+      {stream << "[" + i.name + "] "; });
+    if (!m_namedOptions.empty() || !m_flags.empty()) stream << "[options...]";
+    stream << std::endl;
 
     // now all option strings are generated
     std::vector<std::pair<std::string, std::string>> optionsAndDescriptions;
@@ -155,9 +155,9 @@ public:
     {
       auto maxOptionStringLength = std::max_element(optionsAndDescriptions.begin(), optionsAndDescriptions.end(), 
         [](const auto& l, const auto& r) {return l.first.length() < r.first.length(); })->first.length();
-      std::cout << std::endl << "Options" << std::endl;
+      stream << std::endl << "options" << std::endl;
       std::for_each(optionsAndDescriptions.begin(), optionsAndDescriptions.end(), [&](const auto& i)
-        {std::cout << "  " << std::left << std::setw(maxOptionStringLength) << i.first << " " << i.second << std::endl; });
+        {stream << "  " << std::left << std::setw(maxOptionStringLength) << i.first << " " << i.second << std::endl; });
     }
   }
 
