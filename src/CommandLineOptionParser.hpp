@@ -121,7 +121,7 @@ public:
     if (mandatoryParamIterator != m_mandatoryParameters.end())
     {
       // there are remaining mandatory parameters without matching command line argument
-      throw std::invalid_argument("Not all required parameters provided");
+      throw std::invalid_argument("Mandatory parameter " + mandatoryParamIterator->name + " not provided");
     }
   }
 
