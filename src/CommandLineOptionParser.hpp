@@ -15,7 +15,8 @@ namespace StringParsing
 {
   template <typename T> void parseString(const std::string& valueAsString, T& value)
   {
-    if (!(std::stringstream(valueAsString) >> value))
+    // expect that the state is exactly eof, which means everything could be parsed and no error happened
+    if ((std::stringstream(valueAsString) >> value).rdstate() != std::ios::eofbit)
     {
       throw std::invalid_argument("Error parsing value " + valueAsString + " as " + std::string(typeid(T).name()));
     }
