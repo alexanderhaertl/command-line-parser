@@ -44,6 +44,11 @@ public:
       mandatory });
   }
 
+  bool parseCommandLineArguments(int argc, char** argv)
+  {
+    return parseCommandLineArguments(std::vector<std::string>(argv, argv + argc));
+  }
+
   bool parseCommandLineArguments(const std::vector<std::string>& args) const
   {
     std::vector<const UnnamedParameter*> mandatoryParams, optionalParams;
