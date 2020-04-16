@@ -1,3 +1,8 @@
+/* Copyright (C) 2020 Alexander Haertl - All rights reserved 
+ * Distributed under the Boost Software License, Version 1.0.
+ * See http://www.boost.org/LICENSE_1_0.txt
+ */
+
 #pragma once
 
 #include <string>
@@ -25,6 +30,11 @@ namespace StringParsing
   template <> void parseString(const std::string& valueAsString, std::string& value)
   {
     value = valueAsString;
+  }
+
+  template <typename T> void printValue(const T& value, std::ostream& stream)
+  {
+    ostream << T;
   }
 };
 
@@ -165,6 +175,7 @@ private:
   struct Parameter
   {
     std::function<void(const std::string&)> parserFunction;
+    std::function<void(std::ostream&)> printFunction;
     std::string name, description;
   };
 
