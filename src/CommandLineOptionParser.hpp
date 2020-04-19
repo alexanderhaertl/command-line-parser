@@ -16,8 +16,18 @@
 #include <filesystem>
 #include <typeinfo>
 
+/* Helpers for string parsing of standard types, i.e. all types
+ * that provide a formatted streaming operator (<< and >>)
+ */
 namespace StringParsing
 {
+  /** Tries to parse the value provided as string into the value. If parsing
+    * fails, an std::invalid_argument exception is thrown.
+    * @tparam T The type of the value to be parsed.
+    * @param valueAsString The string representation of the value to be parsed
+    * @param value The output value containing the parsed value on success.
+    * @exception std::invalid_argument if parsing is not successful.
+    */
   template <typename T> void parseString(const std::string& valueAsString, T& value)
   {
     // expect that the state is exactly eof, which means everything could be parsed and no error happened
@@ -27,34 +37,78 @@ namespace StringParsing
     }
   }
 
+  /** Specialization of above function template for std::string, which always succeeds.
+    * The valueAsString is simply copied to value.
+    */
   template <> void parseString(const std::string& valueAsString, std::string& value)
   {
     value = valueAsString;
   }
 
+  /** Prints the provided value to a stream.
+    * @tparam The type of the value to be printed.
+    * @param value The value to be printed.
+    * @param stream The stream to which the value is printed.
+    */
   template <typename T> void printValue(const T& value, std::ostream& stream)
   {
-    ostream << T;
+    stream << T;
   }
 };
 
+/** Class for parsing the command line arguments. It is to be used as follows:
+  * After instanciating this class, all parameters that should be mapped to command
+  * line arguments are registered. The mapped parameters are provided as references
+  * that must remain valid until parsing is finished. Then the command line arguments
+  * are used to do the actual parsing. Named options are identified by a dash ('-')
+  * followed by the option identifier. Errors in parsing are reported by std::invalid_argument
+  * exception. A usage screen can be generated automatically based on the information and parameters
+  * provided. This implies that the entire command line parsing is done by this class.
+  */
 class CommandLineOptionParser
 {
 public:
+  /** Template function for registering parameters mapped to command line arguments. Works for
+    * all standard types for which standard streaming operators are defined. The parameter
+    * provided is stored as reference and changed when \ref parseCommandLineArguments is called.
+    * The parameter is expected to be reasonably initialized for the case that the option is not set.
+    * @tparam T Type of the parameter to be registered.
+    * @param parameter Reference to the parameter mapped to a command line argument.
+    * @param optionIdentifier The identifier for the option. Implicitly preceded with a dash ('-')
+    * @param parameterIdentifier Name printed after the option identifier.
+    * @param description Longer description text printed in usage.
+    */
   template <typename T>
-  void registerOption(T& parameter, const std::string& optionName, const std::string& parameterName, const std::string& description)
+  void registerOption(T& parameter, const std::string& optionIdentifier, const std::string& parameterName, const std::string& description)
   {
-    m_namedOptions.emplace(optionName, Parameter({
+    m_namedOptions.emplace(optionIdentifier, Parameter({
       std::bind(StringParsing::parseString<T>, std::placeholders::_1, std::ref(parameter)),
       parameterName,
       description }));
   }
 
-  void registerSwitch(bool& parameter, const std::string& parameterName, const std::string& description)
+  /** Registers a boolean flag or switch that is mapped to a command line argument. If the command
+    * line option is set, the boolean value is negated. The parameter is expected to be reasonably
+    * initialized for the case that the option is not set.
+    * @param parameter Reference to the boolean parameter that should be mapped.
+    * @param parameterIdentifier The identifier for the parameter. Implicitly preceded with a dash ('-')
+    * @param description Longer description text printed in usage.
+    */
+  void registerSwitch(bool& parameter, const std::string& parameterIdentifier, const std::string& description)
   {
-    m_flags.emplace(parameterName, Switch({ &parameter, description }));
+    m_flags.emplace(parameterIdentifier, Switch({ &parameter, description }));
   }
 
+  /** Registers an unnamed parameter, i.e. a parameter that must not be preceeded by
+    * a dash and an option identifier. Parameters can be either mandatory or optional.
+    * Optional parameters are always put after the mandatory parameters, regardless of
+    * the order of registration. The order with in the group of mandatory and optional
+    * parameters, respectively, is determined by the order of registration.
+    * @tparam T Type of the parameter to be registered.
+    * @param parameter Reference to the parameter that should be mapped.
+    * @param parameterIdentifier The identifier for the parameter (only used to be printed in usage).
+    * @param description Longer description text printed in usage.
+    */
   template <typename T>
   void registerUnnamedParameter(T& parameter, const std::string& parameterName, const std::string& description, bool mandatory = true)
   {
@@ -64,11 +118,15 @@ public:
       description});
   }
 
-  void parseCommandLineArguments(int argc, char** argv)
-  {
-    parseCommandLineArguments(std::vector<std::string>(argv, argv + argc));
-  }
-
+  /** Parses the provided command line arguments and matches them against the registered
+    * parameters.
+    * @param args Command line arguments as vector of strings
+    * @exception std::invalid_argument If the matching process fails.
+    * - if a registered parameter can not be parsed to the value type provided
+    * - if an unknown option is provided
+    * - if an unnamed option is not matched by a registered parameter
+    * - if an option is not followed by a valid corresponding value
+    */
   void parseCommandLineArguments(const std::vector<std::string>& args) const
   {
     auto mandatoryParamIterator = m_mandatoryParameters.begin();
@@ -135,6 +193,18 @@ public:
     }
   }
 
+  /** Overload for providing directly the typical main function arguments */
+  void parseCommandLineArguments(int argc, char** argv)
+  {
+    parseCommandLineArguments(std::vector<std::string>(argv, argv + argc));
+  }
+
+  /** Generates a classical usage screen for console programs and prints it to the stream provided.
+    * The program name is extracted from the first command line argument.
+    * By default, the usage is printed to standard output.
+    * @param argv0 The first command line argument usually containing the full path to the running executable.
+    * @param stream The stream (extending std::ostream) to which the usage is printed.
+    */
   void printUsage(const std::string& argv0, std::ostream& stream = std::cout)
   {
     // extract program name from argv[0]
@@ -175,7 +245,6 @@ private:
   struct Parameter
   {
     std::function<void(const std::string&)> parserFunction;
-    std::function<void(std::ostream&)> printFunction;
     std::string name, description;
   };
 
