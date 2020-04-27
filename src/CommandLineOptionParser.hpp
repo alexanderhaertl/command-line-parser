@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <typeinfo>
+#include <optional>
 
 /* Helpers for string parsing of standard types, i.e. all types
  * that provide a formatted streaming operator (<< and >>)
@@ -37,6 +38,15 @@ namespace StringParsing
     }
   }
 
+  /** Specialization of above function template for std::optional.
+    */
+  template <typename T> void parseString(const std::string& valueAsString, std::optional<T>& value)
+  {
+    T temp;
+    parseString(valueAsString, temp);
+    value = temp;
+  }
+
   /** Specialization of above function template for std::string, which always succeeds.
     * The valueAsString is simply copied to value.
     */
@@ -50,9 +60,17 @@ namespace StringParsing
     * @param value The value to be printed.
     * @param stream The stream to which the value is printed.
     */
-  template <typename T> void printValue(const T& value, std::ostream& stream)
+  template <typename T> std::string printValue(const T& value)
   {
-    stream << T;
+    return (std::stringstream() << ", default:" << value).str();
+  }
+
+  /** Specialization of above template for std::optional. If the optional value
+    * does not contain an actual value, nothing is printed.
+    */
+  template <typename T> std::string printValue(const std::optional<T>& value)
+  {
+    return value.has_value() ? printValue(*value) : "";
   }
 };
 
@@ -82,7 +100,8 @@ public:
   void registerOption(T& parameter, const std::string& optionIdentifier, const std::string& parameterName, const std::string& description)
   {
     m_namedOptions.emplace(optionIdentifier, Parameter({
-      std::bind(StringParsing::parseString<T>, std::placeholders::_1, std::ref(parameter)),
+      [&](const std::string& valueAsString) { StringParsing::parseString(valueAsString, parameter); },
+      [&] { return StringParsing::printValue(parameter); },
       parameterName,
       description }));
   }
@@ -113,7 +132,8 @@ public:
   void registerUnnamedParameter(T& parameter, const std::string& parameterName, const std::string& description, bool mandatory = true)
   {
     (mandatory ? m_mandatoryParameters : m_optionalParameters).push_back({
-      std::bind(StringParsing::parseString<T>, std::placeholders::_1, std::ref(parameter)),
+      [&](const std::string& valueAsString) { StringParsing::parseString(valueAsString, parameter);},
+      [&] { return StringParsing::printValue(parameter); },
       parameterName,
       description});
   }
@@ -204,8 +224,9 @@ public:
     * By default, the usage is printed to standard output.
     * @param argv0 The first command line argument usually containing the full path to the running executable.
     * @param stream The stream (extending std::ostream) to which the usage is printed.
+    * @param printDefaultValues Whether the default values (current value of the registered variables during parsing) shall be printed
     */
-  void printUsage(const std::string& argv0, std::ostream& stream = std::cout)
+  void printUsage(const std::string& argv0, std::ostream& stream = std::cout, bool printDefaultValues = false)
   {
     // extract program name from argv[0]
     const auto executableName = std::filesystem::path(argv0).stem().string();
@@ -220,24 +241,25 @@ public:
     stream << std::endl;
 
     // now all option strings are generated
-    std::vector<std::pair<std::string, std::string>> optionsAndDescriptions;
-    std::transform(m_mandatoryParameters.begin(), m_mandatoryParameters.end(), std::back_inserter(optionsAndDescriptions),
-      [](const auto& i) {return std::make_pair("<" + i.name + ">", i.description); });
-    std::transform(m_optionalParameters.begin(), m_optionalParameters.end(), std::back_inserter(optionsAndDescriptions),
-      [](const auto& i) {return std::make_pair("[" + i.name + "]", i.description); });
-    std::transform(m_flags.begin(), m_flags.end(), std::back_inserter(optionsAndDescriptions),
-      [](const auto& i) {return std::make_pair("-" + i.first, i.second.description); });
-    std::transform(m_namedOptions.begin(), m_namedOptions.end(), std::back_inserter(optionsAndDescriptions),
-      [](const auto& i) {return std::make_pair("-" + i.first + " <" + i.second.name + ">", i.second.description); });
+    std::vector<TextualDescription> textualDescriptions;
+    std::transform(m_mandatoryParameters.begin(), m_mandatoryParameters.end(), std::back_inserter(textualDescriptions),
+      [](const auto& i) {return TextualDescription({ "<" + i.name + ">", i.description, i.printFunction() }); });
+    std::transform(m_optionalParameters.begin(), m_optionalParameters.end(), std::back_inserter(textualDescriptions),
+      [](const auto& i) {return TextualDescription({ "[" + i.name + "]", i.description, i.printFunction() }); });
+    std::transform(m_flags.begin(), m_flags.end(), std::back_inserter(textualDescriptions),
+      [](const auto& i) {return TextualDescription({ "-" + i.first, i.second.description, std::string(", default: ") + (*i.second.flagPointer ? "true" : "false") }); });
+    std::transform(m_namedOptions.begin(), m_namedOptions.end(), std::back_inserter(textualDescriptions),
+      [](const auto& i) {return TextualDescription({ "-" + i.first + " <" + i.second.name + ">", i.second.description, i.second.printFunction() }); });
 
     // now the options and parameters are described
-    if (!optionsAndDescriptions.empty())
+    if (!textualDescriptions.empty())
     {
-      auto maxOptionStringLength = std::max_element(optionsAndDescriptions.begin(), optionsAndDescriptions.end(), 
-        [](const auto& l, const auto& r) {return l.first.length() < r.first.length(); })->first.length();
+      auto maxOptionStringLength = std::max_element(textualDescriptions.begin(), textualDescriptions.end(), 
+        [](const auto& l, const auto& r) {return l.optionString.length() < r.optionString.length(); })->optionString.length();
       stream << std::endl << "options" << std::endl;
-      std::for_each(optionsAndDescriptions.begin(), optionsAndDescriptions.end(), [&](const auto& i)
-        {stream << "  " << std::left << std::setw(maxOptionStringLength) << i.first << " " << i.second << std::endl; });
+      std::for_each(textualDescriptions.begin(), textualDescriptions.end(), [&](const auto& i)
+        {stream << "  " << std::left << std::setw(maxOptionStringLength) << i.optionString << " " << i.description;
+      if(printDefaultValues) stream << i.defaultValue << std::endl; });
     }
   }
 
@@ -245,6 +267,7 @@ private:
   struct Parameter
   {
     std::function<void(const std::string&)> parserFunction;
+    std::function<std::string()> printFunction;
     std::string name, description;
   };
 
@@ -252,6 +275,11 @@ private:
   {
     bool* flagPointer;
     std::string description;
+  };
+
+  struct TextualDescription
+  {
+    std::string optionString, description, defaultValue;
   };
 
   std::vector<Parameter> m_mandatoryParameters, m_optionalParameters;
